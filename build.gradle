@@ -10,6 +10,12 @@ repositories {
 }
 
 dependencies {
+    // Kyori Adventure dependencies
+    implementation platform('net.kyori:adventure-bom:4.21.0')
+    compileOnly 'net.kyori:adventure-api'
+    compileOnly 'net.kyori:adventure-text-serializer-legacy'
+    testImplementation 'net.kyori:adventure-text-serializer-gson'
+
     testImplementation 'org.jetbrains.kotlin:kotlin-test'
 }
 
