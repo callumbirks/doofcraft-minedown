@@ -30,4 +30,19 @@ kotlin {
 
 java {
     withSourcesJar()
+    withJavadocJar()
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            from components.java
+
+            pom {
+                name = 'doofcraft-minedown'
+                description = 'MineDown-adventure Kotlin port - MarkDown-inspired markup for Minecraft chat components'
+                url = 'https://github.com/callumbirks/doofcraft-minedown-kt'
+            }
+        }
+    }
 }

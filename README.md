@@ -1,3 +1,3 @@
 # Doofcraft Minedown
 
-This is a placeholder project for copying the MineDown project.
+A re-write of [MineDown](https://github.com/Phoenix616/MineDown) from Java into Kotlin - with some customisations.
