@@ -154,7 +154,7 @@ class MineDownParser {
                     val colorString = StringBuilder()
                     for (j in i until message.length) {
                         val c1 = message[j]
-                        if (c1 == code && colorString.length > 1) {
+                        if (c1 == c && colorString.length > 1) {
                             val colorStr = colorString.toString()
                             rainbowPhase = parseRainbow(colorStr, "", lenient())
                             if (rainbowPhase == null && !colorStr.contains("=")) {

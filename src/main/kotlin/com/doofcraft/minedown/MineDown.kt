@@ -54,6 +54,16 @@ class MineDown(private var message: String) {
     }
 
     /**
+     * Parse the message, replace strings, and return plain text.
+     * Formatting is not supported.
+     * @return The message with replacements applied
+     */
+    fun toPlainText(): String {
+        val msg = message()
+        return replacer().replaceStrings(msg)
+    }
+
+    /**
      * Remove a cached component and re-parse the next time [toComponent] is called
      */
     private fun reset() {
