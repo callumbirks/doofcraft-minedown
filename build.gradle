@@ -1,13 +1,10 @@
 plugins {
     id 'org.jetbrains.kotlin.jvm' version '2.2.0'
+    id 'maven-publish'
 }
 
-group = 'com.doofcraft'
-version = '1.0-SNAPSHOT'
-
-repositories {
-    mavenCentral()
-}
+group = 'com.github.callumbirks'  // JitPack uses this format
+version = project.lib_version
 
 dependencies {
     // Kyori Adventure dependencies
@@ -22,6 +19,11 @@ dependencies {
 test {
     useJUnitPlatform()
 }
+
 kotlin {
     jvmToolchain(21)
+}
+
+java {
+    withSourcesJar()
 }
