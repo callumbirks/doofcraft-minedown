@@ -6,6 +6,10 @@ plugins {
 group = 'com.github.callumbirks'  // JitPack uses this format
 version = project.lib_version
 
+repositories {
+    mavenCentral()
+}
+
 dependencies {
     // Kyori Adventure dependencies
     implementation platform('net.kyori:adventure-bom:4.21.0')
