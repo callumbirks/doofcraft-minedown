@@ -33,11 +33,10 @@ import net.kyori.adventure.text.format.TextDecoration
  * which is loosely based on MarkDown while still supporting legacy formatting codes.
  */
 class MineDown(private var message: String) {
-
     private val replacer: Replacer = Replacer()
     private val parser: MineDownParser = MineDownParser()
     private var components: Component? = null
-    private var replaceFirst: Boolean = System.getProperty("de.themoep.minedown.adventure.replacefirst")?.toBoolean() ?: false
+    private var replaceFirst: Boolean = false
 
     /**
      * Parse and convert the message to the component
