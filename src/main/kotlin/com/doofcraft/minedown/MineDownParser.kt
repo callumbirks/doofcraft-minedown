@@ -269,7 +269,7 @@ class MineDownParser {
                     formattingIsLegacy(false)
                     appendValue()
                     append(copy(true).format(formats).parse(message.substring(i + 2, endIndex)))
-                    i = endIndex + 1
+                    i = endIndex + 2
                     continue
                 }
             }
