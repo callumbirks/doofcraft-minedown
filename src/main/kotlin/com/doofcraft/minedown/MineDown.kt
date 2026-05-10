@@ -114,6 +114,17 @@ class MineDown(private var message: String) {
     }
 
     /**
+     * Add a map with typed placeholders and values that should get replaced in the message
+     * @param replacements The replacements mapped placeholder to typed value
+     * @return The MineDown instance
+     */
+    fun replaceTyped(replacements: Map<String, ReplacementValue>): MineDown {
+        reset()
+        replacer().replaceTyped(replacements)
+        return this
+    }
+
+    /**
      * Add a placeholder to component mapping that should get replaced in the message
      * @param placeholder   The placeholder to replace
      * @param replacement   The replacement component
@@ -122,6 +133,54 @@ class MineDown(private var message: String) {
     fun replace(placeholder: String, replacement: Component): MineDown {
         reset()
         replacer().replace(placeholder, replacement)
+        return this
+    }
+
+    /**
+     * Add a placeholder to typed value mapping that should get replaced in the message
+     * @param placeholder The placeholder to replace
+     * @param replacement The typed replacement value
+     * @return The MineDown instance
+     */
+    fun replace(placeholder: String, replacement: ReplacementValue): MineDown {
+        reset()
+        replacer().replace(placeholder, replacement)
+        return this
+    }
+
+    /**
+     * Add a placeholder to string mapping that should get replaced in the message
+     * @param placeholder The placeholder to replace
+     * @param replacement The replacement string
+     * @return The MineDown instance
+     */
+    fun replaceText(placeholder: String, replacement: String): MineDown {
+        reset()
+        replacer().replaceText(placeholder, replacement)
+        return this
+    }
+
+    /**
+     * Add a placeholder to component mapping that should get replaced in the message
+     * @param placeholder The placeholder to replace
+     * @param replacement The replacement component
+     * @return The MineDown instance
+     */
+    fun replaceComponent(placeholder: String, replacement: Component): MineDown {
+        reset()
+        replacer().replaceComponent(placeholder, replacement)
+        return this
+    }
+
+    /**
+     * Add a placeholder to MineDown string mapping that should get replaced in the message
+     * @param placeholder The placeholder to replace
+     * @param replacement The replacement MineDown string
+     * @return The MineDown instance
+     */
+    fun replaceMinedown(placeholder: String, replacement: String): MineDown {
+        reset()
+        replacer().replaceMinedown(placeholder, replacement)
         return this
     }
 

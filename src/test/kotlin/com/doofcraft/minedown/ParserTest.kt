@@ -38,6 +38,10 @@ class ParserTest {
         println("$mineDownString\n${GsonComponentSerializer.gson().serialize(MineDown(mineDownString).replace(placeholder, replacement).toComponent())}")
     }
 
+    private fun parseMineDownReplacement(mineDownString: String, placeholder: String, replacement: String) {
+        println("$mineDownString\n${GsonComponentSerializer.gson().serialize(MineDown(mineDownString).replaceMinedown(placeholder, replacement).toComponent())}")
+    }
+
     private fun parse(
         mineDownString: String,
         placeholder1: String,
@@ -165,6 +169,30 @@ class ParserTest {
                     "placeholder2", MineDown("[replacement2](https://example.com)").toComponent()
                 )
             }
+        )
+    }
+
+    @Test
+    fun testMineDownReplacing() {
+        println("testMineDownReplacing")
+        assertAll(
+            { parseMineDownReplacement("&6Test __%placeholder%__&r =D", "placeholder", "**value**") },
+            { parseMineDownReplacement("&6Test %placeholder% =D", "placeholder", "[value](https://example.com)") },
+            { parseMineDownReplacement("&6Test %placeholder% =D", "placeholder", "&5value") }
+        )
+    }
+
+    @Test
+    fun testTypedReplacing() {
+        println("testTypedReplacing")
+        println(
+            GsonComponentSerializer.gson().serialize(
+                MineDown("&6Test %text% %component% %md% =D")
+                    .replace("text", ReplacementValue.Text("value"))
+                    .replace("component", ReplacementValue.ComponentValue(MineDown("**component**").toComponent()))
+                    .replace("md", ReplacementValue.MineDownValue("[md](https://example.com)"))
+                    .toComponent()
+            )
         )
     }
 

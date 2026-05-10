@@ -42,14 +42,9 @@ import java.util.regex.Pattern
 class Replacer {
 
     /**
-     * The map of placeholders with their string replacements
+     * The map of placeholders with their typed replacements
      */
-    private val replacements: MutableMap<String, String> = LinkedHashMap()
-
-    /**
-     * The map of placeholders with their component array replacements
-     */
-    private val componentReplacements: MutableMap<String, Component> = LinkedHashMap()
+    private val replacements: MutableMap<String, ReplacementValue> = LinkedHashMap()
 
     /**
      * The placeholder indicator's prefix character
@@ -68,7 +63,7 @@ class Replacer {
 
     /**
      * Add an array with placeholders and values that should get replaced in the message
-     * @param replacements The replacements, nth element is the placeholder, n+1th the value
+     * @param replacements The replacements, nth element is the placeholder, n+1th the placeholder's value
      * @return The Replacer instance
      */
     fun replace(vararg replacements: String): Replacer {
@@ -76,13 +71,12 @@ class Replacer {
             replacements.size % 2 == 0,
             "The replacement length has to be even, mapping i % 2 == 0 to the placeholder and i % 2 = 1 to the placeholder's value"
         )
-        val replacementMap = LinkedHashMap<String, String>()
         var i = 0
         while (i + 1 < replacements.size) {
-            replacementMap[replacements[i]] = replacements[i + 1]
+            replaceText(replacements[i], replacements[i + 1])
             i += 2
         }
-        return replace(replacementMap)
+        return this
     }
 
     /**
@@ -91,35 +85,90 @@ class Replacer {
      * @return The Replacer instance
      */
     fun replace(replacements: Map<String, *>?): Replacer {
-        if (replacements != null && replacements.isNotEmpty()) {
-            val any = replacements.values.filterNotNull().firstOrNull()
-            when (any) {
-                is String -> {
-                    @Suppress("UNCHECKED_CAST") replacements().putAll(replacements as Map<String, String>)
-                }
+        if (replacements == null || replacements.isEmpty()) {
+            return this
+        }
 
-                is Component -> {
-                    @Suppress("UNCHECKED_CAST") componentReplacements().putAll(replacements as Map<String, Component>)
-                }
-
-                else -> {
-                    for ((key, value) in replacements) {
-                        replacements()[key] = value.toString()
-                    }
-                }
+        for ((key, value) in replacements) {
+            when (value) {
+                null -> replaceText(key, "null")
+                is ReplacementValue -> this.replacements[key] = value
+                is String -> replaceText(key, value)
+                is Component -> replaceComponent(key, value)
+                else -> replaceText(key, value.toString())
             }
         }
         return this
     }
 
     /**
-     * Add a placeholder to component mapping that should get replaced in the message
+     * Add a placeholder to string mapping that should get replaced in the message
      * @param placeholder The placeholder to replace
-     * @param replacement The replacement components
+     * @param replacement The replacement string
      * @return The Replacer instance
      */
-    fun replace(placeholder: String, replacement: Component): Replacer {
-        componentReplacements()[placeholder] = replacement
+    fun replace(placeholder: String, replacement: String): Replacer = replaceText(placeholder, replacement)
+
+    /**
+     * Add a placeholder to component mapping that should get replaced in the message
+     * @param placeholder The placeholder to replace
+     * @param replacement The replacement component
+     * @return The Replacer instance
+     */
+    fun replace(placeholder: String, replacement: Component): Replacer = replaceComponent(placeholder, replacement)
+
+    /**
+     * Add a map with placeholders and typed values that should get replaced in the message
+     * @param replacements The replacements mapped placeholder to value
+     * @return The Replacer instance
+     */
+    fun replaceTyped(replacements: Map<String, ReplacementValue>): Replacer {
+        this.replacements.putAll(replacements)
+        return this
+    }
+
+    /**
+     * Add a placeholder to typed value mapping that should get replaced in the message
+     * @param placeholder The placeholder to replace
+     * @param replacement The replacement value
+     * @return The Replacer instance
+     */
+    fun replace(placeholder: String, replacement: ReplacementValue): Replacer {
+        this.replacements[placeholder] = replacement
+        return this
+    }
+
+    /**
+     * Add a placeholder to string mapping that should get replaced in the message
+     * @param placeholder The placeholder to replace
+     * @param text The replacement string
+     * @return The Replacer instance
+     */
+    fun replaceText(placeholder: String, text: String): Replacer {
+        this.replacements[placeholder] = ReplacementValue.Text(text)
+        return this
+    }
+
+    /**
+     * Add a placeholder to component mapping that should get replaced in the message
+     * @param placeholder The placeholder to replace
+     * @param component The replacement component
+     * @return The Replacer instance
+     */
+    fun replaceComponent(placeholder: String, component: Component): Replacer {
+        this.replacements[placeholder] = ReplacementValue.ComponentValue(component)
+        return this
+    }
+
+    /**
+     * Add a placeholder to MineDown string mapping that should get replaced in the message.
+     * The MineDown string will be parsed into a component before replacement.
+     * @param placeholder The placeholder to replace
+     * @param mineDown The replacement MineDown string
+     * @return The Replacer instance
+     */
+    fun replaceMinedown(placeholder: String, mineDown: String): Replacer {
+        this.replacements[placeholder] = ReplacementValue.MineDownValue(mineDown)
         return this
     }
 
@@ -144,17 +193,13 @@ class Replacer {
             return null
         }
 
-        val replaced = mutableListOf<Component?>()
-        for (component in components) {
-            replaced.add(replaceIn(component))
-        }
-        return replaced
+        return components.map { replaceIn(it) }
     }
 
     /**
-     * Replace the placeholders in a component list
-     * @param component The Component list to replace in
-     * @return A copy of the array with the placeholders replaced
+     * Replace the placeholders in a component
+     * @param component The Component to replace in
+     * @return A copy of the component with the placeholders replaced
      */
     fun replaceIn(component: Component?): Component? {
         if (component == null) {
@@ -162,22 +207,20 @@ class Replacer {
         }
 
         val builder = Component.text()
-
         var modifiedComponent = component
+
         if (modifiedComponent is KeybindComponent) {
             modifiedComponent =
                 modifiedComponent.keybind(replaceIn(modifiedComponent.keybind()) ?: modifiedComponent.keybind())
         }
         if (modifiedComponent is TextComponent) {
-            val replaced = replaceStrings(modifiedComponent.content())
+            val replaced = replaceStringValues(modifiedComponent.content())
             val sectionIndex = replaced.indexOf('§')
             if (sectionIndex > -1 && replaced.length > sectionIndex + 1 && Util.getFormatFromLegacy(
-                    replaced.lowercase(
-                        Locale.ROOT
-                    )[sectionIndex + 1]
+                    replaced.lowercase(Locale.ROOT)[sectionIndex + 1]
                 ) != null
             ) {
-                // replacement contain legacy code, parse to components and append them as children
+                // String replacement contains legacy code, parse to components and append them as children.
                 val replacedComponent = LegacyComponentSerializer.legacySection().deserialize(replaced)
                 modifiedComponent = modifiedComponent.content("")
                 val children = mutableListOf<Component>()
@@ -188,13 +231,13 @@ class Replacer {
                 }
                 modifiedComponent = modifiedComponent.children(children)
             } else {
-                val replacedChildren2 = replaceIn(modifiedComponent.children())
+                val replacedChildren = replaceIn(modifiedComponent.children())
                 modifiedComponent =
-                    modifiedComponent.content(replaced).children(replacedChildren2?.filterNotNull() ?: emptyList())
+                    modifiedComponent.content(replaced).children(replacedChildren?.filterNotNull() ?: emptyList())
             }
         } else if (modifiedComponent.children().isNotEmpty()) {
-            val replacedChildren3 = replaceIn(modifiedComponent.children())
-            modifiedComponent = modifiedComponent.children(replacedChildren3?.filterNotNull() ?: emptyList())
+            val replacedChildren = replaceIn(modifiedComponent.children())
+            modifiedComponent = modifiedComponent.children(replacedChildren?.filterNotNull() ?: emptyList())
         }
         if (modifiedComponent is TranslatableComponent) {
             modifiedComponent = modifiedComponent.key(replaceIn(modifiedComponent.key()) ?: modifiedComponent.key())
@@ -244,9 +287,7 @@ class Replacer {
                                 Key.key(replaceIn(showItem.item().asString()) ?: showItem.item().asString()),
                                 showItem.count(),
                                 if (showItem.nbt() != null) BinaryTagHolder.binaryTagHolder(
-                                    replaceIn(
-                                        showItem.nbt()!!.string()
-                                    ) ?: showItem.nbt()!!.string()
+                                    replaceIn(showItem.nbt()!!.string()) ?: showItem.nbt()!!.string()
                                 ) else null
                             )
                         )
@@ -257,50 +298,36 @@ class Replacer {
             }
         }
 
-        // Component replacements
+        // Typed replacements that need the parsed component tree.
         var replacedComponents = mutableListOf<Component>(modifiedComponent)
+        for ((key, value) in replacements()) {
+            if (value is ReplacementValue.Text) {
+                continue
+            }
 
-        for ((key, value) in componentReplacements()) {
             val newReplacedComponents = mutableListOf<Component>()
-
             for (replaceComponent in replacedComponents) {
                 if (replaceComponent is TextComponent) {
-                    var textComponent: TextComponent = replaceComponent
-                    val placeHolder =
-                        placeholderPrefix() + (if (ignorePlaceholderCase()) key.lowercase(Locale.ROOT) else key) + placeholderSuffix()
-                    val text = if (ignorePlaceholderCase()) textComponent.content()
-                        .lowercase(Locale.ROOT) else textComponent.content()
-                    var index = text.indexOf(placeHolder)
+                    val placeholder = normalizedPlaceholder(key)
+                    val searchText = textForMatch(replaceComponent.content())
+                    var index = searchText.indexOf(placeholder)
                     if (index > -1) {
+                        var textComponent: TextComponent = replaceComponent
                         while (true) {
-                            val startBuilder: ComponentBuilder<*, *>
-                            if (index > 0) {
-                                startBuilder = Component.text().mergeStyle(textComponent)
-                                startBuilder.content(
-                                    textComponent.content().substring(0, index)
-                                )
-                                startBuilder.append(value)
-                            } else if (value is BuildableComponent<*, *>) {
-                                startBuilder = value.toBuilder()
-                                // Merge replacement style onto the component's to properly apply the replacement styles over the component ones
-                                startBuilder.style(
-                                    Style.style().merge(textComponent.style()).merge(value.style()).build()
-                                )
-                            } else {
-                                startBuilder = Component.text().mergeStyle(textComponent)
-                                startBuilder.append(value)
+                            val replacementComponent = when (value) {
+                                is ReplacementValue.ComponentValue -> value.value
+                                is ReplacementValue.MineDownValue -> MineDown(value.value).toComponent()
+                                is ReplacementValue.Text -> Component.text(value.value)
                             }
-                            newReplacedComponents.add(startBuilder.build())
+                            newReplacedComponents += buildReplacementSegment(textComponent, index, replacementComponent)
 
                             textComponent = textComponent.content(
-                                textComponent.content().substring(index + placeHolder.length)
-                            )
-                            val newText = if (ignorePlaceholderCase()) textComponent.content()
-                                .lowercase(Locale.ROOT) else textComponent.content()
-
-                            if (newText.isEmpty() || newText.indexOf(placeHolder).also { index = it } < 0) {
-                                // No further placeholder in text, add rest to newReplacedComponents
-                                newReplacedComponents.add(textComponent)
+                                textComponent.content().substring(index + placeholder.length)
+                            ) as TextComponent
+                            val remainingText = textForMatch(textComponent.content())
+                            index = remainingText.indexOf(placeholder)
+                            if (remainingText.isEmpty() || index < 0) {
+                                newReplacedComponents += textComponent
                                 break
                             }
                         }
@@ -308,68 +335,42 @@ class Replacer {
                     }
                 }
 
-                // Nothing was replaced, just add it
-                newReplacedComponents.add(replaceComponent)
+                newReplacedComponents += replaceComponent
             }
             replacedComponents = newReplacedComponents
         }
-        builder.append(replacedComponents)
 
+        builder.append(replacedComponents)
         return builder.build()
     }
 
     /**
      * Replace the placeholders in a string.
-     * @param string The String list to replace in
+     * @param string The String to replace in
      * @return The string with the placeholders replaced
      */
     fun replaceIn(string: String?): String? {
         if (string == null) {
             return null
         }
-
-        val replacer = copy()
-        for ((key, value) in replacer.componentReplacements()) {
-            replacer.replacements().putIfAbsent(key, LegacyComponentSerializer.legacySection().serialize(value))
-        }
-        return replacer.replaceStrings(string)
+        return replaceStrings(string)
     }
 
     /**
-     * Replace the placeholders in a string. Does not replace component replacements!
-     * @param string The String list to replace in
+     * Replace the placeholders in a string.
+     * Component values are converted to legacy-text equivalents in this path.
+     * @param string The String to replace in
      * @return The string with the placeholders replaced
      */
     internal fun replaceStrings(string: String): String {
-        var result = string
-        for ((key, value) in replacements()) {
-            val replValue = value
-            if (ignorePlaceholderCase()) {
-                val placeholder = placeholderPrefix() + key.lowercase(Locale.ROOT) + placeholderSuffix()
-                var nextStart = 0
-                while (nextStart < result.length) {
-                    val startIndex = result.lowercase(Locale.ROOT).indexOf(placeholder, nextStart)
-                    if (startIndex <= -1) break
-                    nextStart = startIndex + replValue.length
-                    result =
-                        result.take(startIndex) + replValue + result.substring(startIndex + placeholder.length)
-                }
-            } else {
-                val placeholder = placeholderPrefix() + key + placeholderSuffix()
-                val pattern = PATTERN_CACHE.computeIfAbsent(placeholder, PATTERN_CREATOR)
-                result = pattern.matcher(result).replaceAll(Matcher.quoteReplacement(replValue))
-            }
-        }
-        return result
+        return replaceStringValues(string)
     }
 
     /**
      * Create a copy of this Replacer
      * @return A copy of this Replacer
      */
-    fun copy(): Replacer {
-        return Replacer().copy(this)
-    }
+    fun copy(): Replacer = Replacer().copy(this)
 
     /**
      * Copy all the values of another Replacer
@@ -379,36 +380,23 @@ class Replacer {
     fun copy(from: Replacer): Replacer {
         replacements().clear()
         replacements().putAll(from.replacements())
-        componentReplacements().clear()
-        componentReplacements().putAll(from.componentReplacements())
         placeholderPrefix(from.placeholderPrefix())
         placeholderSuffix(from.placeholderSuffix())
+        ignorePlaceholderCase(from.ignorePlaceholderCase())
         return this
     }
 
     /**
-     * Get the map of placeholders with their string replacements
+     * Get the map of placeholders with their typed replacements
      * @return the replacement map
      */
-    fun replacements(): MutableMap<String, String> {
-        return this.replacements
-    }
-
-    /**
-     * Get the map of placeholders with their component array replacements
-     * @return the replacement map
-     */
-    fun componentReplacements(): MutableMap<String, Component> {
-        return this.componentReplacements
-    }
+    fun replacements(): MutableMap<String, ReplacementValue> = this.replacements
 
     /**
      * Get the placeholder indicator's prefix string
      * @return the prefix characters
      */
-    fun placeholderPrefix(): String {
-        return this.placeholderPrefix
-    }
+    fun placeholderPrefix(): String = this.placeholderPrefix
 
     /**
      * Set the placeholder indicator's prefix string
@@ -424,9 +412,7 @@ class Replacer {
      * Get the placeholder indicator's suffix string
      * @return the suffix characters
      */
-    fun placeholderSuffix(): String {
-        return this.placeholderSuffix
-    }
+    fun placeholderSuffix(): String = this.placeholderSuffix
 
     /**
      * Set the placeholder indicator's suffix string
@@ -442,9 +428,7 @@ class Replacer {
      * Replace the placeholder no matter what the case of it is
      * @return whether or not to ignore the placeholder case (Default: true)
      */
-    fun ignorePlaceholderCase(): Boolean {
-        return this.ignorePlaceholderCase
-    }
+    fun ignorePlaceholderCase(): Boolean = this.ignorePlaceholderCase
 
     /**
      * Set whether or not the placeholder should be replaced no matter what the case of it is
@@ -454,6 +438,63 @@ class Replacer {
     fun ignorePlaceholderCase(ignorePlaceholderCase: Boolean): Replacer {
         this.ignorePlaceholderCase = ignorePlaceholderCase
         return this
+    }
+
+    private fun buildReplacementSegment(
+        textComponent: TextComponent,
+        index: Int,
+        replacement: Component
+    ): Component {
+        return if (index > 0) {
+            Component.text()
+                .mergeStyle(textComponent)
+                .content(textComponent.content().substring(0, index))
+                .append(replacement)
+                .build()
+        } else if (replacement is BuildableComponent<*, *>) {
+            replacement.toBuilder().style(
+                Style.style().merge(textComponent.style()).merge(replacement.style()).build()
+            ).build()
+        } else {
+            Component.text().mergeStyle(textComponent).append(replacement).build()
+        }
+    }
+
+    private fun normalizedPlaceholder(key: String): String {
+        val placeholderKey = if (ignorePlaceholderCase()) key.lowercase(Locale.ROOT) else key
+        return placeholderPrefix() + placeholderKey + placeholderSuffix()
+    }
+
+    private fun textForMatch(text: String): String {
+        return if (ignorePlaceholderCase()) text.lowercase(Locale.ROOT) else text
+    }
+
+    private fun replaceStringValues(string: String): String {
+        var result = string
+        for ((key, replacementValue) in replacements()) {
+            val replValue = replacementToString(replacementValue)
+            if (ignorePlaceholderCase()) {
+                val placeholder = normalizedPlaceholder(key)
+                var nextStart = 0
+                while (nextStart < result.length) {
+                    val startIndex = result.lowercase(Locale.ROOT).indexOf(placeholder, nextStart)
+                    if (startIndex <= -1) break
+                    nextStart = startIndex + replValue.length
+                    result = result.take(startIndex) + replValue + result.substring(startIndex + placeholder.length)
+                }
+            } else {
+                val placeholder = normalizedPlaceholder(key)
+                val pattern = PATTERN_CACHE.computeIfAbsent(placeholder, PATTERN_CREATOR)
+                result = pattern.matcher(result).replaceAll(Matcher.quoteReplacement(replValue))
+            }
+        }
+        return result
+    }
+
+    private fun replacementToString(value: ReplacementValue): String = when (value) {
+        is ReplacementValue.Text -> value.value
+        is ReplacementValue.ComponentValue -> LegacyComponentSerializer.legacySection().serialize(value.value)
+        is ReplacementValue.MineDownValue -> value.value
     }
 
     companion object {
@@ -470,7 +511,7 @@ class Replacer {
         /**
          * Replace certain placeholders with values in string.
          * This uses the % character as placeholder indicators (suffix and prefix)
-         * @param message      The string to replace in
+         * @param message The string to replace in
          * @param replacements The replacements, nth element is the placeholder, n+1th the value
          * @return The string with all the placeholders replaced
          */
@@ -481,7 +522,7 @@ class Replacer {
         /**
          * Replace certain placeholders with values in a component array.
          * This uses the % character as placeholder indicators (suffix and prefix)
-         * @param message      The Component to replace in
+         * @param message The Component to replace in
          * @param replacements The replacements, nth element is the placeholder, n+1th the value
          * @return A copy of the Component array with all the placeholders replaced
          */
@@ -490,11 +531,11 @@ class Replacer {
         }
 
         /**
-         * Replace a certain placeholder with a component array in a component array.
+         * Replace a certain placeholder with a component in a component array.
          * This uses the % character as placeholder indicators (suffix and prefix)
-         * @param message     The Component to replace in
+         * @param message The Component to replace in
          * @param placeholder The placeholder to replace
-         * @param replacement The replacement components
+         * @param replacement The replacement component
          * @return A copy of the Component array with all the placeholders replaced
          */
         fun replaceIn(message: Component?, placeholder: String, replacement: Component): Component? {
