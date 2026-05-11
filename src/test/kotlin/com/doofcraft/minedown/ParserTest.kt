@@ -23,8 +23,13 @@ package com.doofcraft.minedown
  */
 
 import net.kyori.adventure.text.Component
+import net.kyori.adventure.text.TextComponent
+import net.kyori.adventure.text.TranslatableComponent
 import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer
 import org.junit.jupiter.api.Assertions.assertAll
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 
@@ -197,6 +202,29 @@ class ParserTest {
     }
 
     @Test
+    fun testComponentReplacementPreservesTranslatableComponents() {
+        val replacement = Component.translatable("item.cobblemon.poke_ball")
+        val rendered = MineDown("&green&%item% (Ready to claim!)")
+            .replace("item", replacement)
+            .toComponent()
+
+        assertTrue(containsTranslatableKey(rendered, "item.cobblemon.poke_ball"))
+        assertFalse(allTextContent(rendered).contains("item.cobblemon.poke_ball"))
+        assertTrue(allTextContent(rendered).contains("Ready to claim!"))
+    }
+
+    @Test
+    fun testMixedTextAndComponentReplacementKeepsTypedComponentPath() {
+        val rendered = MineDown("&6%prefix% %item%")
+            .replace("prefix", "Reward:")
+            .replace("item", Component.translatable("item.cobblemon.poke_ball"))
+            .toComponent()
+
+        assertTrue(allTextContent(rendered).contains("Reward:"))
+        assertTrue(containsTranslatableKey(rendered, "item.cobblemon.poke_ball"))
+    }
+
+    @Test
     fun testNegated() {
         assertAll(
             { parse("&lBold [not bold](!bold) bold") }
@@ -227,5 +255,17 @@ class ParserTest {
             { parse("[fallback text](translate=translatable.translation with={Argument 1,Argument 2} hover=[hover text](red))") },
             { parse("[fallback text](translate=translatable.translation with={Argument 1,Argument 2} hover=[hover text](red) click=open_url=https://example.com)") }
         )
+    }
+
+    private fun containsTranslatableKey(component: Component, key: String): Boolean {
+        if (component is TranslatableComponent && component.key() == key) {
+            return true
+        }
+        return component.children().any { containsTranslatableKey(it, key) }
+    }
+
+    private fun allTextContent(component: Component): String {
+        val own = if (component is TextComponent) component.content() else ""
+        return own + component.children().joinToString("") { allTextContent(it) }
     }
 }

@@ -214,7 +214,7 @@ class Replacer {
                 modifiedComponent.keybind(replaceIn(modifiedComponent.keybind()) ?: modifiedComponent.keybind())
         }
         if (modifiedComponent is TextComponent) {
-            val replaced = replaceStringValues(modifiedComponent.content())
+            val replaced = replaceTextValuesOnly(modifiedComponent.content())
             val sectionIndex = replaced.indexOf('§')
             if (sectionIndex > -1 && replaced.length > sectionIndex + 1 && Util.getFormatFromLegacy(
                     replaced.lowercase(Locale.ROOT)[sectionIndex + 1]
@@ -473,6 +473,31 @@ class Replacer {
         var result = string
         for ((key, replacementValue) in replacements()) {
             val replValue = replacementToString(replacementValue)
+            if (ignorePlaceholderCase()) {
+                val placeholder = normalizedPlaceholder(key)
+                var nextStart = 0
+                while (nextStart < result.length) {
+                    val startIndex = result.lowercase(Locale.ROOT).indexOf(placeholder, nextStart)
+                    if (startIndex <= -1) break
+                    nextStart = startIndex + replValue.length
+                    result = result.take(startIndex) + replValue + result.substring(startIndex + placeholder.length)
+                }
+            } else {
+                val placeholder = normalizedPlaceholder(key)
+                val pattern = PATTERN_CACHE.computeIfAbsent(placeholder, PATTERN_CREATOR)
+                result = pattern.matcher(result).replaceAll(Matcher.quoteReplacement(replValue))
+            }
+        }
+        return result
+    }
+
+    private fun replaceTextValuesOnly(string: String): String {
+        var result = string
+        for ((key, replacementValue) in replacements()) {
+            if (replacementValue !is ReplacementValue.Text) {
+                continue
+            }
+            val replValue = replacementValue.value
             if (ignorePlaceholderCase()) {
                 val placeholder = normalizedPlaceholder(key)
                 var nextStart = 0
