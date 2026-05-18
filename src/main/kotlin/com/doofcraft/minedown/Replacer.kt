@@ -460,12 +460,12 @@ class Replacer {
         }
     }
 
-    private fun normalizedPlaceholder(key: String): String {
+    internal fun normalizedPlaceholder(key: String): String {
         val placeholderKey = if (ignorePlaceholderCase()) key.lowercase(Locale.ROOT) else key
         return placeholderPrefix() + placeholderKey + placeholderSuffix()
     }
 
-    private fun textForMatch(text: String): String {
+    internal fun textForMatch(text: String): String {
         return if (ignorePlaceholderCase()) text.lowercase(Locale.ROOT) else text
     }
 

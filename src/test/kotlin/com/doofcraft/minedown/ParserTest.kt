@@ -25,6 +25,8 @@ package com.doofcraft.minedown
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.TextComponent
 import net.kyori.adventure.text.TranslatableComponent
+import net.kyori.adventure.text.format.NamedTextColor
+import net.kyori.adventure.text.format.TextColor
 import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer
 import org.junit.jupiter.api.Assertions.assertAll
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -225,6 +227,45 @@ class ParserTest {
     }
 
     @Test
+    fun testGradientTextReplacementUsesReplacementTextForGradient() {
+        val rendered = MineDown("You did &#990000-#ff1a1a-#ffb3b3&%damage% &green&damage")
+            .replace("damage", "12345")
+            .toComponent()
+
+        assertFalse(allTextContent(rendered).contains("%damage%"))
+        assertTrue(allTextContent(rendered).contains("12345 damage"))
+
+        val digitLeaves = textLeaves(rendered).filter { it.content().all(Char::isDigit) }
+        assertEquals(5, digitLeaves.sumOf { it.content().length })
+        assertTrue(digitLeaves.mapNotNull { it.color() }.distinct().size > 1)
+        assertEquals(
+            Util.createGradient(
+                6L,
+                listOf(
+                    TextColor.fromHexString("#990000")!!,
+                    TextColor.fromHexString("#ff1a1a")!!,
+                    TextColor.fromHexString("#ffb3b3")!!
+                )
+            ).take(5),
+            digitLeaves.map { it.color() }
+        )
+    }
+
+    @Test
+    fun testGradientComponentReplacementKeepsExplicitReplacementColor() {
+        val rendered = MineDown("You did &#990000-#ff1a1a-#ffb3b3&%damage%")
+            .replace("damage", Component.text("123").color(NamedTextColor.YELLOW))
+            .toComponent()
+
+        assertFalse(allTextContent(rendered).contains("%damage%"))
+        assertTrue(allTextContent(rendered).contains("123"))
+
+        val digitLeaves = textLeaves(rendered).filter { it.content().all(Char::isDigit) }
+        assertEquals(3, digitLeaves.sumOf { it.content().length })
+        assertTrue(digitLeaves.all { it.color() == NamedTextColor.YELLOW })
+    }
+
+    @Test
     fun testNegated() {
         assertAll(
             { parse("&lBold [not bold](!bold) bold") }
@@ -267,5 +308,10 @@ class ParserTest {
     private fun allTextContent(component: Component): String {
         val own = if (component is TextComponent) component.content() else ""
         return own + component.children().joinToString("") { allTextContent(it) }
+    }
+
+    private fun textLeaves(component: Component): List<TextComponent> {
+        val own = if (component is TextComponent && component.content().isNotEmpty()) listOf(component) else emptyList()
+        return own + component.children().flatMap { textLeaves(it) }
     }
 }

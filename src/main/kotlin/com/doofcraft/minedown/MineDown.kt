@@ -48,7 +48,7 @@ class MineDown(private var message: String) {
             if (replaceFirst()) {
                 msg = replacer().replaceStrings(msg)
             }
-            components = replacer().replaceIn(parser().parse(msg).build())
+            components = replacer().replaceIn(parser().parse(msg, if (replaceFirst()) null else replacer()).build())
         }
         return components()!!
     }

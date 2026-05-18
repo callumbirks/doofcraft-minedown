@@ -26,6 +26,7 @@ import net.kyori.adventure.key.Key
 import net.kyori.adventure.nbt.api.BinaryTagHolder
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.ComponentBuilder
+import net.kyori.adventure.text.TextComponent
 import net.kyori.adventure.text.event.ClickEvent
 import net.kyori.adventure.text.event.HoverEvent
 import net.kyori.adventure.text.format.*
@@ -96,6 +97,7 @@ class MineDownParser {
     private var formattingIsLegacy: Boolean = false
     private var clickEvent: ClickEvent? = null
     private var hoverEvent: HoverEvent<*>? = null
+    private var replacer: Replacer? = null
 
     init {
         reset()
@@ -109,6 +111,14 @@ class MineDownParser {
      */
     @Throws(IllegalArgumentException::class)
     fun parse(message: String): ComponentBuilder<*, *> {
+        return parse(message, replacer())
+    }
+
+    @Throws(IllegalArgumentException::class)
+    internal fun parse(message: String, replacer: Replacer?): ComponentBuilder<*, *> {
+        val previousReplacer = replacer()
+        replacer(replacer)
+        try {
         val urlMatcher = if (urlDetection()) URL_PATTERN.matcher(message) else null
         var escaped = false
         var i = 0
@@ -302,6 +312,9 @@ class MineDownParser {
             builder(Component.text())
         }
         return builder()!!
+        } finally {
+            replacer(previousReplacer)
+        }
     }
 
     private fun append(builder: ComponentBuilder<*, *>) {
@@ -315,18 +328,17 @@ class MineDownParser {
     private fun appendValue() {
         val builder: ComponentBuilder<*, *>
         val applicableColors: List<TextColor>
-        var valueCodepointLength = value().length.toLong()
+        val valueSegments = replacementAwareValueSegments(value().toString())
+        val valueCodepointLength = valueSegments.sumOf { it.codePointLength() }.toLong()
         // If the value is empty don't add anything
         if (valueCodepointLength == 0L) {
             return
         }
         applicableColors = if (rainbowPhase() != null) {
             // Rainbow colors
-            valueCodepointLength = value().codePoints().count()
             Util.createRainbow(valueCodepointLength, rainbowPhase()!!)
         } else if (colors() != null) {
             if (colors()!!.size > 1) {
-                valueCodepointLength = value().codePoints().count()
                 Util.createGradient(
                     valueCodepointLength,
                     colors!!.filter { it.value }.map { it.key }
@@ -391,23 +403,7 @@ class MineDownParser {
         }
 
         if (applicableColors.size > 1) {
-            val stepLength = Math.round(valueCodepointLength.toDouble() / applicableColors.size).toInt()
-            val component = Component.empty().toBuilder()
-
-            val sb = StringBuilder()
-            var colorIndex = 0
-            var steps = 0
-
-            val it = value().codePoints().iterator()
-            while (it.hasNext()) {
-                sb.appendCodePoint(it.nextInt())
-                if (++steps == stepLength) {
-                    steps = 0
-                    component.append(Component.text(sb.toString()).color(applicableColors[colorIndex++]))
-                    sb.clear()
-                }
-            }
-            builder.append(component)
+            appendGradientValue(builder, valueSegments, applicableColors)
         }
         if (builder() == null) {
             builder(builder)
@@ -416,6 +412,151 @@ class MineDownParser {
         }
         value(StringBuilder())
     }
+
+    private fun replacementAwareValueSegments(text: String): List<ValueSegment> {
+        val replacer = replacer() ?: return listOf(ValueSegment.Text(text))
+        if (replacer.replacements().isEmpty()) {
+            return listOf(ValueSegment.Text(text))
+        }
+
+        val segments = mutableListOf<ValueSegment>()
+        var cursor = 0
+        while (cursor < text.length) {
+            val match = findNextReplacement(text, cursor, replacer)
+            if (match == null) {
+                segments.add(ValueSegment.Text(text.substring(cursor)))
+                break
+            }
+
+            if (match.index > cursor) {
+                segments.add(ValueSegment.Text(text.substring(cursor, match.index)))
+            }
+            segments.add(ValueSegment.Replacement(match.value))
+            cursor = match.index + match.placeholder.length
+        }
+        return if (segments.isEmpty()) listOf(ValueSegment.Text(text)) else segments
+    }
+
+    private fun findNextReplacement(text: String, startIndex: Int, replacer: Replacer): ReplacementMatch? {
+        val searchText = replacer.textForMatch(text)
+        var bestMatch: ReplacementMatch? = null
+
+        for ((key, value) in replacer.replacements()) {
+            val placeholder = replacer.normalizedPlaceholder(key)
+            val index = searchText.indexOf(placeholder, startIndex)
+            if (index < 0) {
+                continue
+            }
+
+            val currentBest = bestMatch
+            if (currentBest == null || index < currentBest.index) {
+                bestMatch = ReplacementMatch(index, placeholder, value)
+            }
+        }
+
+        return bestMatch
+    }
+
+    private fun appendGradientValue(
+        builder: ComponentBuilder<*, *>,
+        segments: List<ValueSegment>,
+        applicableColors: List<TextColor>
+    ) {
+        var colorIndex = 0
+        for (segment in segments) {
+            when (segment) {
+                is ValueSegment.Text -> {
+                    val it = segment.value.codePoints().iterator()
+                    while (it.hasNext()) {
+                        builder.append(Component.text(String(Character.toChars(it.nextInt()))).color(applicableColors[colorIndex++]))
+                    }
+                }
+
+                is ValueSegment.Replacement -> {
+                    val replacement = replacementToComponent(segment.value)
+                    builder.append(colorizeReplacement(replacement, applicableColors) { colorIndex++ })
+                }
+            }
+        }
+    }
+
+    private fun replacementToComponent(value: ReplacementValue): Component {
+        return when (value) {
+            is ReplacementValue.Text -> textReplacementToComponent(value.value)
+            is ReplacementValue.ComponentValue -> value.value
+            is ReplacementValue.MineDownValue -> MineDown(value.value).toComponent()
+        }
+    }
+
+    private fun textReplacementToComponent(text: String): Component {
+        val sectionIndex = text.indexOf('§')
+        return if (sectionIndex > -1 &&
+            text.length > sectionIndex + 1 &&
+            Util.getFormatFromLegacy(text.lowercase(Locale.ROOT)[sectionIndex + 1]) != null
+        ) {
+            LegacyComponentSerializer.legacySection().deserialize(text)
+        } else {
+            Component.text(text)
+        }
+    }
+
+    private fun colorizeReplacement(
+        component: Component,
+        applicableColors: List<TextColor>,
+        nextColorIndex: () -> Int
+    ): Component {
+        if (component is TextComponent && component.content().isEmpty() && component.children().isEmpty()) {
+            return component
+        }
+
+        if (component is TextComponent && component.content().isNotEmpty()) {
+            val builder = Component.text()
+            val explicitColor = component.color() != null
+            val it = component.content().codePoints().iterator()
+            while (it.hasNext()) {
+                val colorIndex = nextColorIndex()
+                val charComponent = Component.text(String(Character.toChars(it.nextInt())))
+                    .style(component.style())
+                builder.append(if (explicitColor) charComponent else charComponent.color(applicableColors[colorIndex]))
+            }
+            builder.append(component.children().map { colorizeReplacement(it, applicableColors, nextColorIndex) })
+            return builder.build()
+        }
+
+        val children = component.children().map { colorizeReplacement(it, applicableColors, nextColorIndex) }
+        if (children.isNotEmpty()) {
+            return component.children(children)
+        }
+
+        val colorIndex = nextColorIndex()
+        return if (component.color() == null) {
+            component.color(applicableColors[colorIndex])
+        } else {
+            component
+        }
+    }
+
+    private sealed interface ValueSegment {
+        fun codePointLength(): Int
+
+        data class Text(val value: String) : ValueSegment {
+            override fun codePointLength(): Int = value.codePoints().count().toInt()
+        }
+
+        data class Replacement(val value: ReplacementValue) : ValueSegment {
+            override fun codePointLength(): Int = when (value) {
+                is ReplacementValue.Text -> value.value.codePoints().count().toInt()
+                is ReplacementValue.ComponentValue -> componentCodePointLength(value.value)
+                is ReplacementValue.MineDownValue -> componentCodePointLength(MineDown(value.value).toComponent())
+            }
+        }
+    }
+
+    private data class ReplacementMatch(
+        val index: Int,
+        val placeholder: String,
+        val value: ReplacementValue
+    )
 
     /**
      * Parse a MineDown event string
@@ -820,6 +961,13 @@ class MineDownParser {
 
     protected fun hoverEvent(): HoverEvent<*>? = hoverEvent
 
+    protected fun replacer(replacer: Replacer?): MineDownParser {
+        this.replacer = replacer
+        return this
+    }
+
+    protected fun replacer(): Replacer? = replacer
+
     /**
      * Copy all the parser's setting to a new instance
      * @return The new parser instance with all settings copied
@@ -855,6 +1003,7 @@ class MineDownParser {
         enabledOptions(from.enabledOptions())
         filteredOptions(from.filteredOptions())
         colorChar(from.colorChar())
+        replacer(from.replacer())
         if (formatting) {
             format(from.format())
             formattingIsLegacy(from.formattingIsLegacy())
@@ -1138,6 +1287,18 @@ class MineDownParser {
         private const val RAINBOW = "rainbow"
 
         val URL_PATTERN: Pattern = Pattern.compile("^(?:(https?)://)?([-\\w_\\.]+\\.[a-z]{2,18})(/\\S*)?\$")
+
+        private fun componentCodePointLength(component: Component): Int {
+            val ownLength = if (component is TextComponent) {
+                component.content().codePoints().count().toInt()
+            } else if (component.children().isEmpty()) {
+                1
+            } else {
+                0
+            }
+
+            return ownLength + component.children().sumOf { componentCodePointLength(it) }
+        }
 
         private fun parseRainbow(colorString: String, prefix: String, lenient: Boolean): Int? {
             if (colorString.substring(prefix.length).lowercase(Locale.ROOT).startsWith(RAINBOW)) {
